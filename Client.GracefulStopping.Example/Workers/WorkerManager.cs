@@ -11,63 +11,41 @@ public class WorkerManager
     private readonly IServiceProvider _serviceProvider;
     private ILogger<WorkerManager> _logger;
 
-    public WorkerManager(WorkerHandlerCounter workerHandlerCounter, IServiceProvider serviceProvider, ILogger<WorkerManager> logger)
+    public WorkerManager(WorkerHandlerCounter workerHandlerCounter, IServiceProvider serviceProvider,
+        ILogger<WorkerManager> logger)
     {
         _workerHandlerCounter = workerHandlerCounter;
         _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
-    public Task StartWorker(
+    public WorkerInstance StartWorker(
         string jobType,
         Func<IJob, ICompleteJobCommandStep1, CancellationToken, Task> handleJobAsync,
         CancellationToken cancellationToken)
     {
-        return Task.Run(
-            () =>
-            {
-                try
-                {
-                    using var scope = _serviceProvider.CreateScope();
+        var result = new WorkerInstance();
 
-                    using var zeebeClient = scope.ServiceProvider.GetRequiredService<IZeebeClient>();
+        var scope = _serviceProvider.CreateScope();
 
-                    using var worker = zeebeClient
-                        .NewWorker()
-                        .JobType(jobType)
-                        .Handler((client, job) => HandleJobAsync(client, job, handleJobAsync, cancellationToken))
-                        .MaxJobsActive(StaticSettings.MaxJobsActive)
-                        .Name($"{jobType}[{Environment.MachineName}][{Environment.CurrentManagedThreadId}]")
-                        .AutoCompletion()
-                        .PollingTimeout(TimeSpan.FromSeconds(StaticSettings.PollingTimeoutSec))
-                        .PollInterval(TimeSpan.FromSeconds(StaticSettings.PollIntervalSec))
-                        .Timeout(TimeSpan.FromSeconds(StaticSettings.TimeoutSec))
-                        .HandlerThreads(StaticSettings.HandlerThreads)
-                        .Open();
+        result.ZeebeClient = scope.ServiceProvider.GetRequiredService<IZeebeClient>();
 
-                    _logger.LogInformation($"Worker ({jobType}) thread Started");
+        result.JobWorker = result.ZeebeClient
+            .NewWorker()
+            .JobType(jobType)
+            .Handler((client, job) => HandleJobAsync(client, job, handleJobAsync, cancellationToken))
+            .MaxJobsActive(StaticSettings.MaxJobsActive)
+            .Name($"{jobType}[{Environment.MachineName}][{Environment.CurrentManagedThreadId}]")
+            .AutoCompletion()
+            .PollingTimeout(TimeSpan.FromSeconds(StaticSettings.PollingTimeoutSec))
+            .PollInterval(TimeSpan.FromSeconds(StaticSettings.PollIntervalSec))
+            .Timeout(TimeSpan.FromSeconds(StaticSettings.TimeoutSec))
+            .HandlerThreads(StaticSettings.HandlerThreads)
+            .Open();
 
-                    // wait app stop signal
-                    cancellationToken.WaitHandle.WaitOne();
+        _logger.LogInformation($"Worker ({jobType}) thread Started");
 
-                    _logger.LogInformation($"Service stop signal");
-
-                    // stop pulling new jobs, but zeebe client is still active,
-                    // job be able to report by active task
-                    worker.StopPooling();
-
-                    // wait all handlers finish
-                    _workerHandlerCounter.WaitForActiveHandlersAsync().GetAwaiter().GetResult();
-
-                    _logger.LogInformation($"Worker ({jobType}) thread finished");
-
-                    // here is zeebe client disposed
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, ex.Message);
-                }
-            });
+        return result;
     }
 
     private async Task HandleJobAsync(

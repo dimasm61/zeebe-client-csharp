@@ -1,5 +1,7 @@
-﻿using Zeebe.Client.Api.Commands;
+﻿using Zeebe.Client;
+using Zeebe.Client.Api.Commands;
 using Zeebe.Client.Api.Responses;
+using Zeebe.Client.Api.Worker;
 
 namespace Client.GracefulStopping.Example.Workers;
 
@@ -7,35 +9,43 @@ public abstract class WorkerBase : IHostedService
 {
     private WorkerManager _workerManager;
 
-    private Task workTask;
+    private ILogger<WorkerBase> _logger;
+
+    private WorkerInstance workerInstance;
 
     private string _jobType;
 
     private CancellationTokenSource _workerCancellationTokenSource;
 
-    protected WorkerBase(WorkerManager workerManager, string jobType)
+    private WorkerHandlerCounter _workerHandlerCounter;
+
+    protected WorkerBase(WorkerManager workerManager, string jobType,
+        ILogger<WorkerBase> logger, WorkerHandlerCounter workerHandlerCounter)
     {
         _workerManager = workerManager;
         _jobType = jobType;
+        _logger = logger;
+        _workerHandlerCounter = workerHandlerCounter;
     }
 
-    protected abstract Task WorkTask(IJob job, ICompleteJobCommandStep1 cmd, CancellationToken cancellationToken);
+    protected abstract Task WorkTaskAsync(IJob job, ICompleteJobCommandStep1 cmd, CancellationToken cancellationToken);
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _workerCancellationTokenSource = new CancellationTokenSource();
-
-        workTask = _workerManager.StartWorker(_jobType, WorkTask, _workerCancellationTokenSource.Token);
+        _logger.LogInformation("Start worker");
+        workerInstance = _workerManager.StartWorker(_jobType, WorkTaskAsync, cancellationToken);
 
         return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        // stop own cancellation token
-        _workerCancellationTokenSource.Cancel();
+        _logger.LogInformation("StopAsync. Start. Dispose worker");
+        workerInstance.JobWorker.Dispose();
 
-        // wait task finish with ignore global token
-        await workTask.WaitAsync(CancellationToken.None);
+        _logger.LogInformation("StopAsync. Delay before close");
+        await _workerHandlerCounter.WaitForActiveHandlersAsync();
+
+        _logger.LogInformation("StopAsync. Finish");
     }
 }

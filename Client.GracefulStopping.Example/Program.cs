@@ -22,7 +22,7 @@ builder.Services.AddSingleton<WorkerHandlerCounter>();
 builder.Services.AddSingleton<WorkerManager>();
 
 builder.Services.AddHostedService<Worker1>();
-builder.Services.AddHostedService<Worker2>();
+//builder.Services.AddHostedService<Worker2>();
 
 
 var app = builder.Build();

@@ -2,7 +2,7 @@
 
 public static class StaticSettings
 {
-    public static string ZeebeUrl = "you-zeebe-domain.com:26500";
+    public static string ZeebeUrl = "http://you-zeebe-domain.com:26500";
 
     public static int MaxJobsActive = 10;
 

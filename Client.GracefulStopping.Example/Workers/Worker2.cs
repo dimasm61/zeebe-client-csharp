@@ -7,17 +7,19 @@ public class Worker2 : WorkerBase
 {
     private ILogger<Worker2> _logger;
 
-    public Worker2(WorkerManager workerManager, ILogger<Worker2> logger) : base(workerManager, "Worker2")
+    public Worker2(WorkerManager workerManager, ILogger<Worker2> logger,
+        WorkerHandlerCounter workerHandlerCounter)
+        : base(workerManager, "Worker2", logger, workerHandlerCounter)
     {
         _logger = logger;
     }
 
-    protected override async Task WorkTask(IJob job, ICompleteJobCommandStep1 cmd, CancellationToken cancellationToken)
+    protected override async Task WorkTaskAsync(IJob job, ICompleteJobCommandStep1 cmd, CancellationToken cancellationToken)
     {
-        _logger.LogInformation($"{nameof(Worker1)} handler start");
+        _logger.LogInformation($"{nameof(Worker2)} handler start");
 
-        await Task.Delay(20_000, cancellationToken);
+        await Task.Delay(15_000, cancellationToken);
 
-        _logger.LogInformation($"{nameof(Worker1)} handler finish");
+        _logger.LogInformation($"{nameof(Worker2)} handler finish");
     }
 }
