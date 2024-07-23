@@ -32,9 +32,11 @@ namespace Zeebe.Client.Impl.Worker
         private bool autoCompletion;
         internal JobActivator Activator { get; }
         internal ActivateJobsRequest Request { get; }
+        internal StreamActivatedJobsRequest StreamRequest { get; }
         internal byte ThreadCount { get; set; }
         internal ILoggerFactory LoggerFactory { get; }
         internal IJobClient JobClient { get; }
+        public bool GrpcStreamEnabled { get; private set; }
 
         public JobWorkerBuilder(IZeebeClient zeebeClient,
             Gateway.GatewayClient gatewayClient,
@@ -43,6 +45,7 @@ namespace Zeebe.Client.Impl.Worker
             LoggerFactory = loggerFactory;
             Activator = new JobActivator(gatewayClient);
             Request = new ActivateJobsRequest();
+            StreamRequest = new StreamActivatedJobsRequest();
             JobClient = zeebeClient;
             ThreadCount = 1;
         }
@@ -50,6 +53,7 @@ namespace Zeebe.Client.Impl.Worker
         public IJobWorkerBuilderStep2 JobType(string type)
         {
             Request.Type = type;
+            StreamRequest.Type = type;
             return this;
         }
 
@@ -68,6 +72,7 @@ namespace Zeebe.Client.Impl.Worker
         public IJobWorkerBuilderStep3 TenantIds(IList<string> tenantIds)
         {
             Request.TenantIds.AddRange(tenantIds);
+            StreamRequest.TenantIds.AddRange(tenantIds);
             return this;
         }
 
@@ -90,6 +95,7 @@ namespace Zeebe.Client.Impl.Worker
         public IJobWorkerBuilderStep3 Name(string workerName)
         {
             Request.Worker = workerName;
+            StreamRequest.Worker = workerName;
             return this;
         }
 
@@ -102,12 +108,14 @@ namespace Zeebe.Client.Impl.Worker
         public IJobWorkerBuilderStep3 FetchVariables(IList<string> fetchVariables)
         {
             Request.FetchVariable.AddRange(fetchVariables);
+            StreamRequest.FetchVariable.AddRange(fetchVariables);
             return this;
         }
 
         public IJobWorkerBuilderStep3 FetchVariables(params string[] fetchVariables)
         {
             Request.FetchVariable.AddRange(fetchVariables);
+            StreamRequest.FetchVariable.AddRange(fetchVariables);
             return this;
         }
 
@@ -143,6 +151,18 @@ namespace Zeebe.Client.Impl.Worker
             }
 
             this.ThreadCount = threadCount;
+            return this;
+        }
+
+        public IJobWorkerBuilderStep3 StreamEnabled(bool streamEnabled)
+        {
+            GrpcStreamEnabled = streamEnabled;
+            return this;
+        }
+
+        public IJobWorkerBuilderStep3 StreamingTimeout(TimeSpan streamingTimeout)
+        {
+            StreamRequest.Timeout = (long)streamingTimeout.TotalMilliseconds;
             return this;
         }
 

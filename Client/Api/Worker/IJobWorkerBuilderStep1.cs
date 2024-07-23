@@ -244,6 +244,11 @@ namespace Zeebe.Client.Api.Worker
         /// <returns>the builder for this worker</returns>
         IJobWorkerBuilderStep3 HandlerThreads(byte threadCount);
 
+        IJobWorkerBuilderStep3 StreamEnabled(bool streamEnabled);
+
+        IJobWorkerBuilderStep3 StreamingTimeout(TimeSpan streamingTimeout);
+
+
         /// <summary>
         /// Open the worker and start to work on available tasks.
         /// </summary>

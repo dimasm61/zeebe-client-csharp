@@ -37,6 +37,7 @@ namespace Zeebe.Client.Impl.Worker
         private readonly ILogger<JobWorker> logger;
         private readonly JobWorkerBuilder jobWorkerBuilder;
         private readonly ActivateJobsRequest activateJobsRequest;
+        private readonly StreamActivatedJobsRequest streamActivateJobsRequest;
         private readonly JobActivator jobActivator;
         private readonly int maxJobsActive;
         private readonly AsyncJobHandler jobHandler;
@@ -56,6 +57,7 @@ namespace Zeebe.Client.Impl.Worker
             this.autoCompletion = builder.AutoCompletionEnabled();
             this.pollInterval = jobWorkerBuilder.PollInterval();
             this.activateJobsRequest = jobWorkerBuilder.Request;
+            this.streamActivateJobsRequest = jobWorkerBuilder.StreamRequest;
             jobActivator = jobWorkerBuilder.Activator;
             this.maxJobsActive = jobWorkerBuilder.Request.MaxJobsToActivate;
             this.thresholdJobsActivation = maxJobsActive * 0.6;
@@ -111,10 +113,22 @@ namespace Zeebe.Client.Impl.Worker
             transformer.LinkTo(output);
 
             // Start polling
-            Task.Run(async () => await PollJobs(input, cancellationToken),
-                cancellationToken).ContinueWith(
-                t => logger?.LogError(t.Exception, "Job polling failed."),
-                TaskContinuationOptions.OnlyOnFaulted);
+            if (this.jobWorkerBuilder.GrpcStreamEnabled)
+            {
+                Task.Run(
+                    async () => await this.PollJobsWithStream(input, cancellationToken),
+                    cancellationToken).ContinueWith(
+                    t => this.logger?.LogError(t.Exception, "Job polling with stream failed."),
+                    TaskContinuationOptions.OnlyOnFaulted);
+            }
+            else
+            {
+                Task.Run(
+                    async () => await this.PollJobs(input, cancellationToken),
+                    cancellationToken).ContinueWith(
+                    t => this.logger?.LogError(t.Exception, "Job polling failed."),
+                    TaskContinuationOptions.OnlyOnFaulted);
+            }
 
             logger?.LogDebug(
                 "Job worker ({worker}) for job type {type} has been opened.",
@@ -169,6 +183,61 @@ namespace Zeebe.Client.Impl.Worker
                     await Task.Delay(pollInterval, cancellationToken);
                 }
             }
+        }
+
+        private async Task PollJobsWithStream(ITargetBlock<IJob> input, CancellationToken cancellationToken)
+        {
+            while (!this.source.IsCancellationRequested)
+            {
+                try
+                {
+                    this.logger?.LogDebug($"zeebe stream: opening...");
+
+                    // open stream
+                    var stream = this.jobActivator.SendStreamActivateRequest(this.streamActivateJobsRequest);
+
+                    this.logger?.LogDebug($"zeebe stream: opened");
+
+                    while (!this.source.IsCancellationRequested)
+                    {
+                        var currentJobs = Thread.VolatileRead(ref this.currentJobsActive);
+
+                        // wait while worker busy
+                        if (currentJobs >= this.thresholdJobsActivation)
+                        {
+                            await Task.Delay(50, cancellationToken);
+                            continue;
+                        }
+
+                        this.logger?.LogDebug($"zeebe stream: pulling new job task...");
+
+                        // worker free, pull new job task
+                        await stream.ResponseStream.MoveNext(cancellationToken);
+
+                        var grpcActivatedJob = stream.ResponseStream.Current;
+
+                        var activatedJob = new Responses.ActivatedJob(grpcActivatedJob);
+
+                        var response = new Responses.ActivateJobsResponses();
+
+                        response.Jobs.Add(activatedJob);
+
+                        var jobCount = this.maxJobsActive - currentJobs;
+
+                        this.activateJobsRequest.MaxJobsToActivate = jobCount;
+
+                        this.logger?.LogDebug($"zeebe stream: new job task received");
+
+                        // run job task
+                        await this.HandleActivationResponse(input, response, jobCount);
+                    } // while
+                }
+                catch (RpcException rpcException)
+                {
+                    this.LogRpcException(rpcException);
+                    await Task.Delay(500, cancellationToken);
+                }
+            } // while
         }
 
         private async Task HandleActivationResponse(ITargetBlock<IJob> input, IActivateJobsResponse response, int jobCount)
