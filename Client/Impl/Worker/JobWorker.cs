@@ -212,7 +212,12 @@ namespace Zeebe.Client.Impl.Worker
                         this.logger?.LogDebug($"zeebe stream: pulling new job task...");
 
                         // worker free, pull new job task
-                        await stream.ResponseStream.MoveNext(cancellationToken);
+                        if (!await stream.ResponseStream.MoveNext(cancellationToken))
+                        {
+                            this.logger?.LogDebug($"zeebe stream: move next return false");
+                            await Task.Delay(50, cancellationToken);
+                            continue;
+                        }
 
                         var grpcActivatedJob = stream.ResponseStream.Current;
 
